@@ -18,15 +18,15 @@ pub struct SimpleMessageChannels<L> {
     destroyed: bool,
     error: Option<String>,
 
-    _message: Option<BytesMut>,
-    _ptr: UnknownNumber,
-    _varint: u64,
-    _factor: u64,
-    _length: u64,
-    _header: u64,
-    _state: UnknownNumber,
-    _consumed: u64,
-    _max_size: usize,
+    message: Option<BytesMut>,
+    ptr: UnknownNumber,
+    varint: u64,
+    factor: u64,
+    length: u64,
+    header: u64,
+    state: UnknownNumber,
+    consumed: u64,
+    max_size: usize,
 }
 
 impl<L: Listener> SimpleMessageChannels<L> {
@@ -42,15 +42,15 @@ impl<L: Listener> SimpleMessageChannels<L> {
             destroyed: false,
             error: None,
 
-            _message: None,
-            _ptr: 0,
-            _varint: 0,
-            _factor: 1,
-            _length: 0,
-            _header: 0,
-            _state: 0,
-            _consumed: 0,
-            _max_size: max_size,
+            message: None,
+            ptr: 0,
+            varint: 0,
+            factor: 1,
+            length: 0,
+            header: 0,
+            state: 0,
+            consumed: 0,
+            max_size,
         }
     }
 
@@ -65,90 +65,90 @@ impl<L: Listener> SimpleMessageChannels<L> {
         assert!(!self.destroyed);
 
         while !data.is_empty() {
-            if self._state == 2 {
-                self._read_message(&mut data);
+            if self.state == 2 {
+                self.read_message(&mut data);
             } else {
-                self._read_varint(&mut data);
+                self.read_varint(&mut data);
             }
         }
-        if self._state == 2 && self._length == 0 {
-            self._read_message(&mut data);
+        if self.state == 2 && self.length == 0 {
+            self.read_message(&mut data);
         }
 
         !self.destroyed
     }
 
-    fn _read_message(&mut self, data: &mut Bytes) {
-        let msg_missing = self._length.as_usize_checked().unwrap();
+    fn read_message(&mut self, data: &mut Bytes) {
+        let msg_missing = self.length.as_usize_checked().unwrap();
         if data.len() >= msg_missing {
             let msg_missing_bytes = data.split_to(msg_missing);
-            if let Some(ref mut msg) = self._message {
+            if let Some(ref mut msg) = self.message {
                 msg.put_slice(&msg_missing_bytes);
             } else {
-                self._message = Some(msg_missing_bytes.into());
+                self.message = Some(msg_missing_bytes.into());
             }
-            if !(self._next_state(data)) {
+            if !(self.next_state(data)) {
                 data.clear()
             };
             return;
         }
 
-        if self._message.is_none() {
-            self._message = Some(BytesMut::with_capacity(msg_missing));
+        if self.message.is_none() {
+            self.message = Some(BytesMut::with_capacity(msg_missing));
         }
-        let msg = self._message.as_mut().unwrap();
+        let msg = self.message.as_mut().unwrap();
         msg.put_slice(data);
-        self._length -= data.len().as_u64_checked().unwrap();
+        self.length -= data.len().as_u64_checked().unwrap();
         data.clear();
     }
 
-    fn _read_varint(&mut self, data: &mut Bytes) {
+    fn read_varint(&mut self, data: &mut Bytes) {
         while !data.is_empty() {
-            self._varint += (data[0] & 127) as u64 * self._factor;
-            self._consumed += 1;
+            self.varint += (data[0] & 127) as u64 * self.factor;
+            self.consumed += 1;
             if data[0] < 128 {
                 data.advance(1);
-                if !(self._next_state(data)) {
+                if !(self.next_state(data)) {
                     data.clear();
                 };
                 return;
             }
-            self._factor *= 128;
+            self.factor *= 128;
             data.advance(1);
         }
-        if self._consumed >= 8 {
+        if self.consumed >= 8 {
             self.destroy("Incoming varint is invalid".to_owned().into()); // 8 * 7bits is 56 ie max for js
         }
     }
 
-    fn _next_state(&mut self, data: &Bytes) -> bool {
-        match self._state {
+    fn next_state(&mut self, data: &Bytes) -> bool {
+        match self.state {
             0 => {
-                self._state = 1;
-                self._factor = 1;
-                self._length = self._varint;
-                self._varint = 0;
-                self._consumed = 0;
-                if self._length == 0 {
-                    self._state = 0;
+                self.state = 1;
+                self.factor = 1;
+                self.length = self.varint;
+                self.varint = 0;
+                self.consumed = 0;
+                if self.length == 0 {
+                    self.state = 0;
                 }
                 return true;
             }
 
             1 => {
-                self._state = 2;
-                self._factor = 1;
-                self._header = self._varint;
-                self._length = self._length.checked_sub(self._consumed).unwrap();
-                self._varint = 0;
-                self._consumed = 0;
-                if self._length.as_usize_checked().unwrap() > self._max_size {
+                self.state = 2;
+                self.factor = 1;
+                self.header = self.varint;
+                self.length = self.length.checked_sub(self.consumed).unwrap();
+                self.varint = 0;
+                self.consumed = 0;
+                if self.length.as_usize_checked().unwrap() > self.max_size {
                     self.destroy("Incoming message is larger than max size".to_owned().into());
                     return false;
                 }
 
                 let extra = data.len();
-                let len = self._length.as_usize_checked().unwrap();
+                let len = self.length.as_usize_checked().unwrap();
                 if len > extra {
                     self.listener.on_missing(len - extra)
                 }
@@ -157,11 +157,11 @@ impl<L: Listener> SimpleMessageChannels<L> {
             }
 
             2 => {
-                self._state = 0;
-                let msg = self._message.take().unwrap();
-                self._onmessage(
-                    Channel(self._header >> 4),
-                    Type(self._header & 0b1111),
+                self.state = 0;
+                let msg = self.message.take().unwrap();
+                self.on_message(
+                    Channel(self.header >> 4),
+                    Type(self.header & 0b1111),
                     msg.freeze(),
                 );
                 return !self.destroyed;
@@ -173,7 +173,7 @@ impl<L: Listener> SimpleMessageChannels<L> {
         }
     }
 
-    fn _onmessage(&mut self, channel: Channel, r#type: Type, message: Bytes) {
+    fn on_message(&mut self, channel: Channel, r#type: Type, message: Bytes) {
         return self.listener.on_message(channel, r#type, message);
     }
 
