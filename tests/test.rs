@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::cmp::min;
-use std::ops::Deref;
 use std::rc::Rc;
 
 use bytes::Bytes;
@@ -31,8 +30,8 @@ impl Listener for CollectingListener {
 
 struct NopListener;
 impl Listener for NopListener {
-    fn on_message(&mut self, channel: Channel, r#type: Type, message: Bytes) {}
-    fn on_missing(&mut self, len: usize) {}
+    fn on_message(&mut self, _: Channel, _: Type, _: Bytes) {}
+    fn on_missing(&mut self, _len: usize) {}
 }
 
 #[test]

@@ -2,7 +2,7 @@ use std::io::Write;
 
 use bytes::{BufMut, Bytes, BytesMut};
 use checked_int_cast::CheckedIntCast;
-use integer_encoding::{VarInt, VarIntReader, VarIntWriter};
+use integer_encoding::{VarInt, VarIntWriter};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Channel(pub u64);
