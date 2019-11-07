@@ -139,10 +139,10 @@ impl<L: Listener> SimpleMessageChannels<L> {
                 self._state = 2;
                 self._factor = 1;
                 self._header = self._varint;
-                self._length -= self._consumed;
+                self._length = self._length.checked_sub(self._consumed).unwrap();
                 self._varint = 0;
                 self._consumed = 0;
-                if self._length < 0 || self._length.as_usize_checked().unwrap() > self._max_size {
+                if self._length.as_usize_checked().unwrap() > self._max_size {
                     self.destroy("Incoming message is larger than max size".to_owned().into());
                     return false;
                 }
