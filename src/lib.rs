@@ -186,7 +186,7 @@ impl<L: Listener> SimpleMessageChannels<L> {
         let mut writer = payload.writer();
         writer.write_varint(length).unwrap();
         writer.write_varint(header).unwrap();
-        writer.write_all(data);
+        writer.write_all(data).unwrap();
 
         return writer.into_inner().freeze();
     }
