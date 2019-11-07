@@ -19,7 +19,6 @@ pub struct SimpleMessageChannels<L> {
     error: Option<String>,
 
     message: Option<BytesMut>,
-    ptr: UnknownNumber,
     varint: u64,
     factor: u64,
     length: u64,
@@ -43,7 +42,6 @@ impl<L: Listener> SimpleMessageChannels<L> {
             error: None,
 
             message: None,
-            ptr: 0,
             varint: 0,
             factor: 1,
             length: 0,
