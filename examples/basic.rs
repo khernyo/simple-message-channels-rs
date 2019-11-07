@@ -1,15 +1,15 @@
 use bytes::Bytes;
-use simple_message_channels::{Channel, Listener, SimpleMessageChannels, Type};
+use simple_message_channels::{Channel, Decoder, Encoder, Listener, Type};
 
 fn main() {
-    let mut a = SimpleMessageChannels::new(None, PrintingListener("a"));
-    let mut b = SimpleMessageChannels::new(None, PrintingListener("b"));
+    let mut decoder = Decoder::new(None, PrintingListener("a"));
+    let mut encoder = Encoder::new(None);
 
-    let mut bytes = b.send(Channel(0), Type(1), &Bytes::from(b"a".as_ref()));
-    bytes.extend_from_slice(&b.send(Channel(0), Type(1), &Bytes::from(b"b".as_ref())));
-    bytes.extend_from_slice(&b.send(Channel(0), Type(1), &Bytes::from(b"c".as_ref())));
+    let mut bytes = encoder.send(Channel(0), Type(1), &Bytes::from(b"a".as_ref()));
+    bytes.extend_from_slice(&encoder.send(Channel(0), Type(1), &Bytes::from(b"b".as_ref())));
+    bytes.extend_from_slice(&encoder.send(Channel(0), Type(1), &Bytes::from(b"c".as_ref())));
 
-    let x = a.recv(bytes);
+    let x = decoder.recv(bytes);
     println!("{:?}", x);
 }
 
