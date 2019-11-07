@@ -2,14 +2,14 @@ use std::cmp::min;
 
 use bytes::Bytes;
 use integer_encoding::VarInt;
-use simple_message_channels::{Channel, Decoder, Encoder, Event, Message, Type};
+use simple_message_channels::{Channel, Decoder, Encoder, Event, Message, MessageType};
 
 #[test]
 fn basic() {
     let mut decoder = Decoder::new(None);
     let mut encoder = Encoder::new(None);
     let bytes = encoder
-        .send(Channel(0), Type(1), &Bytes::from("hi"))
+        .send(Channel(0), MessageType(1), &Bytes::from("hi"))
         .unwrap();
 
     let events: Vec<Event> = decoder.messages(bytes).collect();
@@ -18,7 +18,7 @@ fn basic() {
         events,
         vec![Event::Message(Message {
             channel: Channel(0),
-            r#type: Type(1),
+            message_type: MessageType(1),
             data: Bytes::from("hi"),
         })]
     );
@@ -30,7 +30,7 @@ fn basic_chunked() {
     let mut encoder = Encoder::new(None);
 
     let payload = encoder
-        .send(Channel(0), Type(1), &Bytes::from("hi"))
+        .send(Channel(0), MessageType(1), &Bytes::from("hi"))
         .unwrap();
 
     let mut events: Vec<Event> = vec![];
@@ -44,7 +44,7 @@ fn basic_chunked() {
             Event::Missing(2),
             Event::Message(Message {
                 channel: Channel(0),
-                r#type: Type(1),
+                message_type: MessageType(1),
                 data: Bytes::from("hi"),
             }),
         ]
@@ -57,7 +57,7 @@ fn two_messages_chunked() {
     let mut encoder = Encoder::new(None);
 
     let payload = encoder
-        .send(Channel(0), Type(1), &Bytes::from("hi"))
+        .send(Channel(0), MessageType(1), &Bytes::from("hi"))
         .unwrap();
 
     let mut events: Vec<Event> = vec![];
@@ -66,7 +66,7 @@ fn two_messages_chunked() {
     }
 
     let payload2 = encoder
-        .send(Channel(42), Type(3), &Bytes::from("hey"))
+        .send(Channel(42), MessageType(3), &Bytes::from("hey"))
         .unwrap();
 
     for i in 0..payload2.len() {
@@ -79,13 +79,13 @@ fn two_messages_chunked() {
             Event::Missing(2),
             Event::Message(Message {
                 channel: Channel(0),
-                r#type: Type(1),
+                message_type: MessageType(1),
                 data: Bytes::from("hi"),
             }),
             Event::Missing(3),
             Event::Message(Message {
                 channel: Channel(42),
-                r#type: Type(3),
+                message_type: MessageType(3),
                 data: Bytes::from("hey"),
             }),
         ]
@@ -102,7 +102,11 @@ fn two_big_messages_chunked() {
     const STEP: usize = 500;
 
     let payload = encoder
-        .send(Channel(0), Type(1), &Bytes::from([22; LEN1].as_ref()))
+        .send(
+            Channel(0),
+            MessageType(1),
+            &Bytes::from([22; LEN1].as_ref()),
+        )
         .unwrap();
 
     let mut events: Vec<Event> = vec![];
@@ -111,7 +115,11 @@ fn two_big_messages_chunked() {
     }
 
     let payload2 = encoder
-        .send(Channel(42), Type(3), &Bytes::from([33; LEN2].as_ref()))
+        .send(
+            Channel(42),
+            MessageType(3),
+            &Bytes::from([33; LEN2].as_ref()),
+        )
         .unwrap();
 
     for i in (0..payload2.len()).step_by(STEP) {
@@ -121,16 +129,16 @@ fn two_big_messages_chunked() {
     assert_eq!(
         events,
         vec![
-            Event::Missing(LEN1 - STEP + encoding_length(Channel(0), Type(1), LEN1)),
+            Event::Missing(LEN1 - STEP + encoding_length(Channel(0), MessageType(1), LEN1)),
             Event::Message(Message {
                 channel: Channel(0),
-                r#type: Type(1),
+                message_type: MessageType(1),
                 data: Bytes::from([22; LEN1].as_ref()),
             }),
-            Event::Missing(LEN2 - STEP + encoding_length(Channel(42), Type(3), LEN2)),
+            Event::Missing(LEN2 - STEP + encoding_length(Channel(42), MessageType(3), LEN2)),
             Event::Message(Message {
                 channel: Channel(42),
-                r#type: Type(3),
+                message_type: MessageType(3),
                 data: Bytes::from([33; LEN2].as_ref()),
             }),
         ]
@@ -148,11 +156,19 @@ fn two_big_messages_in_three_chunkes() {
     const STEP: usize = 90_000;
 
     let mut payload = encoder
-        .send(Channel(0), Type(1), &Bytes::from([22; LEN1].as_ref()))
+        .send(
+            Channel(0),
+            MessageType(1),
+            &Bytes::from([22; LEN1].as_ref()),
+        )
         .unwrap();
     payload.extend_from_slice(
         &encoder
-            .send(Channel(42), Type(3), &Bytes::from([33; LEN2].as_ref()))
+            .send(
+                Channel(42),
+                MessageType(3),
+                &Bytes::from([33; LEN2].as_ref()),
+            )
             .unwrap(),
     );
 
@@ -167,8 +183,8 @@ fn two_big_messages_in_three_chunkes() {
         events.push(decoder.messages(chunk).collect());
     }
 
-    let len1 = LEN1 + encoding_length(Channel(0), Type(1), LEN1);
-    let len2 = LEN2 + encoding_length(Channel(42), Type(3), LEN2);
+    let len1 = LEN1 + encoding_length(Channel(0), MessageType(1), LEN1);
+    let len2 = LEN2 + encoding_length(Channel(42), MessageType(3), LEN2);
     assert_eq!(
         events,
         vec![
@@ -176,22 +192,22 @@ fn two_big_messages_in_three_chunkes() {
             vec![
                 Event::Message(Message {
                     channel: Channel(0),
-                    r#type: Type(1),
+                    message_type: MessageType(1),
                     data: Bytes::from([22; LEN1].as_ref()),
                 }),
                 Event::Missing((len1 + len2) - 2 * STEP),
             ],
             vec![Event::Message(Message {
                 channel: Channel(42),
-                r#type: Type(3),
+                message_type: MessageType(3),
                 data: Bytes::from([33; LEN2].as_ref()),
             })]
         ]
     );
 }
 
-fn encoding_length(channel: Channel, r#type: Type, data_len: usize) -> usize {
-    VarInt::required_space(data_len) + VarInt::required_space(channel.0 << 4 | r#type.0)
+fn encoding_length(channel: Channel, message_type: MessageType, data_len: usize) -> usize {
+    VarInt::required_space(data_len) + VarInt::required_space(channel.0 << 4 | message_type.0)
 }
 
 #[test]
@@ -199,14 +215,16 @@ fn empty_message() {
     let mut decoder = Decoder::new(None);
     let mut encoder = Encoder::new(None);
 
-    let bytes = encoder.send(Channel(0), Type(0), &Bytes::new()).unwrap();
+    let bytes = encoder
+        .send(Channel(0), MessageType(0), &Bytes::new())
+        .unwrap();
     let events: Vec<Event> = decoder.messages(bytes).collect();
 
     assert_eq!(
         events,
         vec![Event::Message(Message {
             channel: Channel(0),
-            r#type: Type(0),
+            message_type: MessageType(0),
             data: Bytes::new(),
         })]
     );
@@ -218,7 +236,7 @@ fn chunk_message_is_correct() {
     let mut encoder = Encoder::new(None);
 
     let payload = encoder
-        .send(Channel(0), Type(1), &Bytes::from("aaaaaaaaaa"))
+        .send(Channel(0), MessageType(1), &Bytes::from("aaaaaaaaaa"))
         .unwrap();
 
     let mut events: Vec<Event> = decoder.messages(payload.slice(0, 4)).collect();
@@ -230,7 +248,7 @@ fn chunk_message_is_correct() {
             Event::Missing(8),
             Event::Message(Message {
                 channel: Channel(0),
-                r#type: Type(1),
+                message_type: MessageType(1),
                 data: Bytes::from("aaaaaaaaaa"),
             }),
         ]
@@ -244,17 +262,17 @@ fn large_message() {
 
     let mut events: Vec<Event> = vec![];
     let bytes = encoder
-        .send(Channel(0), Type(1), &Bytes::from("hi"))
+        .send(Channel(0), MessageType(1), &Bytes::from("hi"))
         .unwrap();
     events.extend(decoder.messages(bytes));
 
     let bytes = encoder
-        .send(Channel(0), Type(1), &Bytes::from("12"))
+        .send(Channel(0), MessageType(1), &Bytes::from("12"))
         .unwrap();
     events.extend(decoder.messages(bytes));
 
     assert!(encoder
-        .send(Channel(1), Type(2), &Bytes::from("foo"))
+        .send(Channel(1), MessageType(2), &Bytes::from("foo"))
         .is_err());
 
     assert_eq!(
@@ -262,12 +280,12 @@ fn large_message() {
         vec![
             Event::Message(Message {
                 channel: Channel(0),
-                r#type: Type(1),
+                message_type: MessageType(1),
                 data: Bytes::from("hi"),
             }),
             Event::Message(Message {
                 channel: Channel(0),
-                r#type: Type(1),
+                message_type: MessageType(1),
                 data: Bytes::from("12"),
             }),
         ]

@@ -10,11 +10,11 @@ pub use encoder::Encoder;
 pub struct Channel(pub u64);
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Type(pub u64);
+pub struct MessageType(pub u64);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Message {
     pub channel: Channel,
-    pub r#type: Type,
+    pub message_type: MessageType,
     pub data: Bytes,
 }

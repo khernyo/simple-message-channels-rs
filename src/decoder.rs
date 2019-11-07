@@ -1,7 +1,7 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use checked_int_cast::CheckedIntCast;
 
-use crate::{Channel, Message, Type};
+use crate::{Channel, Message, MessageType};
 
 pub struct Decoder {
     destroyed: bool,
@@ -170,7 +170,7 @@ impl<'a> DecoderIterator<'a> {
                         .destroy("Incoming message is larger than max size".to_owned().into());
                     return Some(Event::Error(Error::TooLarge(TooLarge {
                         channel: Channel(self.decoder.header >> 4),
-                        r#type: Type(self.decoder.header & 0b1111),
+                        message_type: MessageType(self.decoder.header & 0b1111),
                         len: self.decoder.length,
                     })));
                 }
@@ -190,7 +190,7 @@ impl<'a> DecoderIterator<'a> {
                 let msg = self.decoder.message.take().unwrap();
                 Some(Event::Message(Message {
                     channel: Channel(self.decoder.header >> 4),
-                    r#type: Type(self.decoder.header & 0b1111),
+                    message_type: MessageType(self.decoder.header & 0b1111),
                     data: msg.freeze(),
                 }))
             }
@@ -214,6 +214,6 @@ pub enum Error {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TooLarge {
     channel: Channel,
-    r#type: Type,
+    message_type: MessageType,
     len: u64,
 }
