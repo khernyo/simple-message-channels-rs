@@ -1,7 +1,7 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use checked_int_cast::CheckedIntCast;
 
-use crate::{Channel, Message, MessageType};
+use crate::{Channel, Header, Message, MessageType};
 
 pub struct Decoder {
     destroyed: bool,
@@ -11,7 +11,7 @@ pub struct Decoder {
     varint: u64,
     factor: u64,
     length: u64,
-    header: u64,
+    header: Option<Header>,
     state: State,
     consumed: u64,
     max_size: usize,
@@ -32,7 +32,7 @@ impl Decoder {
             varint: 0,
             factor: 1,
             length: 0,
-            header: 0,
+            header: None,
             state: State::Length,
             consumed: 0,
             max_size,
@@ -157,7 +157,7 @@ impl<'a> DecoderIterator<'a> {
             State::Header => {
                 self.decoder.state = State::Payload;
                 self.decoder.factor = 1;
-                self.decoder.header = self.decoder.varint;
+                self.decoder.header = Some(Header::from(self.decoder.varint));
                 self.decoder.length = self
                     .decoder
                     .length
@@ -168,9 +168,10 @@ impl<'a> DecoderIterator<'a> {
                 if self.decoder.length.as_usize_checked().unwrap() > self.decoder.max_size {
                     self.decoder
                         .destroy("Incoming message is larger than max size".to_owned().into());
+                    let header = self.decoder.header.take().unwrap();
                     return Some(Event::Error(Error::TooLarge(TooLarge {
-                        channel: Channel(self.decoder.header >> 4),
-                        message_type: MessageType(self.decoder.header & 0b1111),
+                        channel: header.channel,
+                        message_type: header.message_type,
                         len: self.decoder.length,
                     })));
                 }
@@ -187,10 +188,11 @@ impl<'a> DecoderIterator<'a> {
             State::Payload => {
                 assert!(!self.decoder.destroyed);
                 self.decoder.state = State::Length;
+                let header = self.decoder.header.take().unwrap();
                 let msg = self.decoder.message.take().unwrap();
                 Some(Event::Message(Message {
-                    channel: Channel(self.decoder.header >> 4),
-                    message_type: MessageType(self.decoder.header & 0b1111),
+                    channel: header.channel,
+                    message_type: header.message_type,
                     data: msg.freeze(),
                 }))
             }

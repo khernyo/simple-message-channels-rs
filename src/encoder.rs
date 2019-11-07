@@ -3,7 +3,7 @@ use std::io::Write;
 use bytes::{BufMut, Bytes, BytesMut};
 use integer_encoding::{VarInt, VarIntWriter};
 
-use crate::{Channel, MessageType};
+use crate::{encode_header, Channel, Header, MessageType};
 
 pub struct Encoder {
     max_size: usize,
@@ -32,7 +32,10 @@ impl Encoder {
             ));
         }
 
-        let header = channel.0 << 4 | message_type.0;
+        let header = encode_header(Header {
+            channel,
+            message_type,
+        });
         let length = data.len() + VarInt::required_space(header);
 
         let payload = BytesMut::with_capacity(VarInt::required_space(length) + length);
