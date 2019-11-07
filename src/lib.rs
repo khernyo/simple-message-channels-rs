@@ -10,8 +10,6 @@ pub struct Channel(pub u64);
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Type(pub u64);
 
-type UnknownNumber = i64; // TODO
-
 pub struct SimpleMessageChannels<L> {
     listener: L,
 
@@ -23,7 +21,7 @@ pub struct SimpleMessageChannels<L> {
     factor: u64,
     length: u64,
     header: u64,
-    state: UnknownNumber,
+    state: State,
     consumed: u64,
     max_size: usize,
 }
@@ -46,7 +44,7 @@ impl<L: Listener> SimpleMessageChannels<L> {
             factor: 1,
             length: 0,
             header: 0,
-            state: 0,
+            state: State::ReadLength,
             consumed: 0,
             max_size,
         }
@@ -63,13 +61,13 @@ impl<L: Listener> SimpleMessageChannels<L> {
         assert!(!self.destroyed);
 
         while !data.is_empty() {
-            if self.state == 2 {
+            if self.state == State::ReadPayload {
                 self.read_message(&mut data);
             } else {
                 self.read_varint(&mut data);
             }
         }
-        if self.state == 2 && self.length == 0 {
+        if self.state == State::ReadPayload && self.length == 0 {
             self.read_message(&mut data);
         }
 
@@ -121,20 +119,20 @@ impl<L: Listener> SimpleMessageChannels<L> {
 
     fn next_state(&mut self, data: &Bytes) -> bool {
         match self.state {
-            0 => {
-                self.state = 1;
+            State::ReadLength => {
+                self.state = State::ReadHeader;
                 self.factor = 1;
                 self.length = self.varint;
                 self.varint = 0;
                 self.consumed = 0;
                 if self.length == 0 {
-                    self.state = 0;
+                    self.state = State::ReadLength;
                 }
                 return true;
             }
 
-            1 => {
-                self.state = 2;
+            State::ReadHeader => {
+                self.state = State::ReadPayload;
                 self.factor = 1;
                 self.header = self.varint;
                 self.length = self.length.checked_sub(self.consumed).unwrap();
@@ -154,8 +152,8 @@ impl<L: Listener> SimpleMessageChannels<L> {
                 return true;
             }
 
-            2 => {
-                self.state = 0;
+            State::ReadPayload => {
+                self.state = State::ReadLength;
                 let msg = self.message.take().unwrap();
                 self.on_message(
                     Channel(self.header >> 4),
@@ -163,10 +161,6 @@ impl<L: Listener> SimpleMessageChannels<L> {
                     msg.freeze(),
                 );
                 return !self.destroyed;
-            }
-
-            _ => {
-                return false;
             }
         }
     }
@@ -188,6 +182,13 @@ impl<L: Listener> SimpleMessageChannels<L> {
 
         return writer.into_inner().freeze();
     }
+}
+
+#[derive(Eq, PartialEq)]
+enum State {
+    ReadLength,
+    ReadHeader,
+    ReadPayload,
 }
 
 pub trait Listener {
