@@ -15,7 +15,6 @@ type UnknownNumber = i64; // TODO
 pub struct SimpleMessageChannels<L> {
     listener: L,
 
-    receiving: bool,
     destroyed: bool,
     error: Option<String>,
 
@@ -40,7 +39,6 @@ impl<L: Listener> SimpleMessageChannels<L> {
         SimpleMessageChannels {
             listener,
 
-            receiving: false,
             destroyed: false,
             error: None,
 
@@ -65,10 +63,6 @@ impl<L: Listener> SimpleMessageChannels<L> {
 
     pub fn recv(&mut self, mut data: Bytes) -> bool {
         assert!(!self.destroyed);
-        if self.receiving == true {
-            panic!("Cannot recursively receive data");
-        }
-        self.receiving = true;
 
         while !data.is_empty() {
             if self._state == 2 {
@@ -81,7 +75,6 @@ impl<L: Listener> SimpleMessageChannels<L> {
             self._read_message(&mut data);
         }
 
-        self.receiving = false;
         !self.destroyed
     }
 
