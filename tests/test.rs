@@ -5,7 +5,6 @@ use std::rc::Rc;
 use bytes::Bytes;
 use integer_encoding::VarInt;
 use simple_message_channels::{Channel, Decoder, Encoder, Listener, Type};
-use std::sync::Mutex;
 
 #[derive(Debug, Eq, PartialEq)]
 enum Event {
@@ -39,7 +38,9 @@ fn basic() {
     let events = Rc::new(RefCell::new(Vec::new()));
     let mut decoder = Decoder::new(None, CollectingListener(events.clone()));
     let mut encoder = Encoder::new(None);
-    let bytes = encoder.send(Channel(0), Type(1), &Bytes::from("hi"));
+    let bytes = encoder
+        .send(Channel(0), Type(1), &Bytes::from("hi"))
+        .unwrap();
     decoder.recv(bytes);
 
     drop(decoder);
@@ -55,7 +56,9 @@ fn basic_chunked() {
     let mut decoder = Decoder::new(None, CollectingListener(events.clone()));
     let mut encoder = Encoder::new(None);
 
-    let payload = encoder.send(Channel(0), Type(1), &Bytes::from("hi"));
+    let payload = encoder
+        .send(Channel(0), Type(1), &Bytes::from("hi"))
+        .unwrap();
 
     for i in 0..payload.len() {
         decoder.recv(payload.slice(i, i + 1));
@@ -77,13 +80,17 @@ fn two_messages_chunked() {
     let mut decoder = Decoder::new(None, CollectingListener(events.clone()));
     let mut encoder = Encoder::new(None);
 
-    let payload = encoder.send(Channel(0), Type(1), &Bytes::from("hi"));
+    let payload = encoder
+        .send(Channel(0), Type(1), &Bytes::from("hi"))
+        .unwrap();
 
     for i in 0..payload.len() {
         decoder.recv(payload.slice(i, i + 1));
     }
 
-    let payload2 = encoder.send(Channel(42), Type(3), &Bytes::from("hey"));
+    let payload2 = encoder
+        .send(Channel(42), Type(3), &Bytes::from("hey"))
+        .unwrap();
 
     for i in 0..payload2.len() {
         decoder.recv(payload2.slice(i, i + 1));
@@ -111,13 +118,17 @@ fn two_big_messages_chunked() {
     const LEN2: usize = 200_000;
     const STEP: usize = 500;
 
-    let payload = encoder.send(Channel(0), Type(1), &Bytes::from([22; LEN1].as_ref()));
+    let payload = encoder
+        .send(Channel(0), Type(1), &Bytes::from([22; LEN1].as_ref()))
+        .unwrap();
 
     for i in (0..payload.len()).step_by(STEP) {
         decoder.recv(payload.slice(i, min(i + STEP, payload.len())));
     }
 
-    let payload2 = encoder.send(Channel(42), Type(3), &Bytes::from([33; LEN2].as_ref()));
+    let payload2 = encoder
+        .send(Channel(42), Type(3), &Bytes::from([33; LEN2].as_ref()))
+        .unwrap();
 
     for i in (0..payload2.len()).step_by(STEP) {
         decoder.recv(payload2.slice(i, min(i + STEP, payload2.len())));
@@ -145,7 +156,7 @@ fn empty_message() {
     let mut decoder = Decoder::new(None, CollectingListener(events.clone()));
     let mut encoder = Encoder::new(None);
 
-    let bytes = encoder.send(Channel(0), Type(0), &Bytes::new());
+    let bytes = encoder.send(Channel(0), Type(0), &Bytes::new()).unwrap();
     decoder.recv(bytes);
 
     drop(decoder);
@@ -161,7 +172,9 @@ fn chunk_message_is_correct() {
     let mut decoder = Decoder::new(None, CollectingListener(events.clone()));
     let mut encoder = Encoder::new(None);
 
-    let payload = encoder.send(Channel(0), Type(1), &Bytes::from("aaaaaaaaaa"));
+    let payload = encoder
+        .send(Channel(0), Type(1), &Bytes::from("aaaaaaaaaa"))
+        .unwrap();
 
     decoder.recv(payload.slice(0, 4));
     decoder.recv(payload.slice(4, 12));
@@ -181,16 +194,19 @@ fn large_message() {
     let events = Rc::new(RefCell::new(Vec::new()));
     let mut decoder = Decoder::new(2, CollectingListener(events.clone()));
     let mut encoder = Encoder::new(2);
-    let bytes = encoder.send(Channel(0), Type(1), &Bytes::from("hi"));
+    let bytes = encoder
+        .send(Channel(0), Type(1), &Bytes::from("hi"))
+        .unwrap();
     decoder.recv(bytes);
-    let bytes = encoder.send(Channel(0), Type(1), &Bytes::from("12"));
+    let bytes = encoder
+        .send(Channel(0), Type(1), &Bytes::from("12"))
+        .unwrap();
     decoder.recv(bytes);
-    let bytes = encoder.send(Channel(1), Type(2), &Bytes::from("foo"));
-    decoder.recv(bytes);
+    assert!(encoder
+        .send(Channel(1), Type(2), &Bytes::from("foo"))
+        .is_err());
 
-    let m = Mutex::new(decoder);
-    std::panic::catch_unwind(move || m.lock().unwrap().recv(Bytes::new())).unwrap_err();
-
+    drop(decoder);
     assert_eq!(
         Rc::try_unwrap(events).unwrap().into_inner(),
         vec![

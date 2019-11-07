@@ -5,9 +5,19 @@ fn main() {
     let mut decoder = Decoder::new(None, PrintingListener("a"));
     let mut encoder = Encoder::new(None);
 
-    let mut bytes = encoder.send(Channel(0), Type(1), &Bytes::from(b"a".as_ref()));
-    bytes.extend_from_slice(&encoder.send(Channel(0), Type(1), &Bytes::from(b"b".as_ref())));
-    bytes.extend_from_slice(&encoder.send(Channel(0), Type(1), &Bytes::from(b"c".as_ref())));
+    let mut bytes = encoder
+        .send(Channel(0), Type(1), &Bytes::from(b"a".as_ref()))
+        .unwrap();
+    bytes.extend_from_slice(
+        &encoder
+            .send(Channel(0), Type(1), &Bytes::from(b"b".as_ref()))
+            .unwrap(),
+    );
+    bytes.extend_from_slice(
+        &encoder
+            .send(Channel(0), Type(1), &Bytes::from(b"c".as_ref()))
+            .unwrap(),
+    );
 
     let x = decoder.recv(bytes);
     println!("{:?}", x);

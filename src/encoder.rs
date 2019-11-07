@@ -6,7 +6,6 @@ use integer_encoding::{VarInt, VarIntWriter};
 use crate::{Channel, Type};
 
 pub struct Encoder {
-    destroyed: bool,
     max_size: usize,
 }
 
@@ -16,15 +15,18 @@ impl Encoder {
         MS: Into<Option<usize>>,
     {
         let max_size = max_size.into().unwrap_or(8 * 1024 * 1024);
-
-        Encoder {
-            destroyed: false,
-            max_size,
-        }
+        Encoder { max_size }
     }
 
-    pub fn send(&mut self, channel: Channel, r#type: Type, data: &Bytes) -> Bytes {
-        assert!(!self.destroyed);
+    pub fn send(&mut self, channel: Channel, r#type: Type, data: &Bytes) -> Result<Bytes, String> {
+        if data.len() > self.max_size {
+            return Err(format!(
+                "Trying to encode message larger than max size: {} > {}",
+                data.len(),
+                self.max_size
+            ));
+        }
+
         let header = channel.0 << 4 | r#type.0;
         let length = data.len() + VarInt::required_space(header);
 
@@ -35,6 +37,6 @@ impl Encoder {
         writer.write_varint(header).unwrap();
         writer.write_all(data).unwrap();
 
-        writer.into_inner().freeze()
+        Ok(writer.into_inner().freeze())
     }
 }
