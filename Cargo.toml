@@ -1,0 +1,11 @@
+[package]
+name = "simple-message-channels"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+authors = ["Szabolcs Berecz <szabolcs.berecz@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+bytes = "0.4.12"
+checked_int_cast = "1.0.0"
+integer-encoding = "1.0.7"
