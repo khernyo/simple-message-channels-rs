@@ -6,6 +6,7 @@ use std::rc::Rc;
 use bytes::Bytes;
 use integer_encoding::VarInt;
 use simple_message_channels::{Channel, Listener, SimpleMessageChannels, Type};
+use std::sync::Mutex;
 
 #[derive(Debug, Eq, PartialEq)]
 enum Event {
@@ -167,6 +168,29 @@ fn chunk_message_is_correct() {
         vec![
             Event::Missing(8),
             Event::Message(Channel(0), Type(1), Bytes::from("aaaaaaaaaa"))
+        ]
+    );
+}
+
+#[test]
+fn large_message() {
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let mut a = SimpleMessageChannels::new(2, CollectingListener(events.clone()));
+    let bytes = a.send(Channel(0), Type(1), &Bytes::from("hi"));
+    a.recv(bytes);
+    let bytes = a.send(Channel(0), Type(1), &Bytes::from("12"));
+    a.recv(bytes);
+    let bytes = a.send(Channel(1), Type(2), &Bytes::from("foo"));
+    a.recv(bytes);
+
+    let m = Mutex::new(a);
+    std::panic::catch_unwind(move || m.lock().unwrap().recv(Bytes::new())).unwrap_err();
+
+    assert_eq!(
+        Rc::try_unwrap(events).unwrap().into_inner(),
+        vec![
+            Event::Message(Channel(0), Type(1), Bytes::from("hi")),
+            Event::Message(Channel(0), Type(1), Bytes::from("12"))
         ]
     );
 }
