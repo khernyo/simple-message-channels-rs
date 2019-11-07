@@ -1,8 +1,8 @@
 use bytes::Bytes;
-use simple_message_channels::{Channel, Decoder, Encoder, Listener, Type};
+use simple_message_channels::{Channel, Decoder, Encoder, Type};
 
 fn main() {
-    let mut decoder = Decoder::new(None, PrintingListener("a"));
+    let mut decoder = Decoder::new(None);
     let mut encoder = Encoder::new(None);
 
     let mut bytes = encoder
@@ -19,21 +19,7 @@ fn main() {
             .unwrap(),
     );
 
-    let x = decoder.recv(bytes);
-    println!("{:?}", x);
-}
-
-struct PrintingListener(&'static str);
-
-impl Listener for PrintingListener {
-    fn on_message(&mut self, channel: Channel, r#type: Type, message: Bytes) {
-        println!(
-            "{:?} onmessage: channel:{:?} type:{:?} message:{:?}",
-            self.0, channel, r#type, message
-        );
-    }
-
-    fn on_missing(&mut self, count: usize) {
-        println!("{:?} onmissing: count:{}", self.0, count);
+    for msg in decoder.messages(bytes) {
+        println!("{:?}", msg);
     }
 }

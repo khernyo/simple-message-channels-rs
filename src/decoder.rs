@@ -1,11 +1,9 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use checked_int_cast::CheckedIntCast;
 
-use crate::{Channel, Type};
+use crate::{Channel, Message, Type};
 
-pub struct Decoder<L> {
-    listener: L,
-
+pub struct Decoder {
     destroyed: bool,
     error: Option<String>,
 
@@ -19,16 +17,14 @@ pub struct Decoder<L> {
     max_size: usize,
 }
 
-impl<L: Listener> Decoder<L> {
-    pub fn new<MS>(max_size: MS, listener: L) -> Decoder<L>
+impl Decoder {
+    pub fn new<MS>(max_size: MS) -> Decoder
     where
         MS: Into<Option<usize>>,
     {
         let max_size = max_size.into().unwrap_or(8 * 1024 * 1024);
 
         Decoder {
-            listener,
-
             destroyed: false,
             error: None,
 
@@ -50,116 +46,11 @@ impl<L: Listener> Decoder<L> {
         self.destroyed = true;
     }
 
-    pub fn recv(&mut self, mut data: Bytes) -> bool {
-        assert!(!self.destroyed);
-
-        while !data.is_empty() {
-            if self.state == State::Payload {
-                self.read_message(&mut data);
-            } else {
-                self.read_varint(&mut data);
-            }
+    pub fn messages(&mut self, data: Bytes) -> DecoderIterator {
+        DecoderIterator {
+            decoder: self,
+            bytes: data,
         }
-        if self.state == State::Payload && self.length == 0 {
-            self.read_message(&mut data);
-        }
-
-        !self.destroyed
-    }
-
-    fn read_message(&mut self, data: &mut Bytes) {
-        let msg_missing = self.length.as_usize_checked().unwrap();
-        if data.len() >= msg_missing {
-            let msg_missing_bytes = data.split_to(msg_missing);
-            if let Some(ref mut msg) = self.message {
-                msg.put_slice(&msg_missing_bytes);
-            } else {
-                self.message = Some(msg_missing_bytes.into());
-            }
-            if !(self.next_state(data)) {
-                data.clear()
-            };
-            return;
-        }
-
-        if self.message.is_none() {
-            self.message = Some(BytesMut::with_capacity(msg_missing));
-        }
-        let msg = self.message.as_mut().unwrap();
-        msg.put_slice(data);
-        self.length -= data.len().as_u64_checked().unwrap();
-        data.clear();
-    }
-
-    fn read_varint(&mut self, data: &mut Bytes) {
-        while !data.is_empty() {
-            self.varint += (data[0] & 127) as u64 * self.factor;
-            self.consumed += 1;
-            if data[0] < 128 {
-                data.advance(1);
-                if !(self.next_state(data)) {
-                    data.clear();
-                };
-                return;
-            }
-            self.factor *= 128;
-            data.advance(1);
-        }
-        if self.consumed >= 8 {
-            self.destroy("Incoming varint is invalid".to_owned().into()); // 8 * 7bits is 56 ie max for js
-        }
-    }
-
-    fn next_state(&mut self, data: &Bytes) -> bool {
-        match self.state {
-            State::Length => {
-                self.state = State::Header;
-                self.factor = 1;
-                self.length = self.varint;
-                self.varint = 0;
-                self.consumed = 0;
-                if self.length == 0 {
-                    self.state = State::Length;
-                }
-                true
-            }
-
-            State::Header => {
-                self.state = State::Payload;
-                self.factor = 1;
-                self.header = self.varint;
-                self.length = self.length.checked_sub(self.consumed).unwrap();
-                self.varint = 0;
-                self.consumed = 0;
-                if self.length.as_usize_checked().unwrap() > self.max_size {
-                    self.destroy("Incoming message is larger than max size".to_owned().into());
-                    return false;
-                }
-
-                let extra = data.len();
-                let len = self.length.as_usize_checked().unwrap();
-                if len > extra {
-                    self.listener.on_missing(len - extra)
-                }
-
-                true
-            }
-
-            State::Payload => {
-                self.state = State::Length;
-                let msg = self.message.take().unwrap();
-                self.on_message(
-                    Channel(self.header >> 4),
-                    Type(self.header & 0b1111),
-                    msg.freeze(),
-                );
-                !self.destroyed
-            }
-        }
-    }
-
-    fn on_message(&mut self, channel: Channel, r#type: Type, message: Bytes) {
-        self.listener.on_message(channel, r#type, message)
     }
 }
 
@@ -170,7 +61,159 @@ enum State {
     Payload,
 }
 
-pub trait Listener {
-    fn on_message(&mut self, channel: Channel, r#type: Type, message: Bytes);
-    fn on_missing(&mut self, len: usize);
+pub struct DecoderIterator<'a> {
+    decoder: &'a mut Decoder,
+    bytes: Bytes,
+}
+
+impl<'a> Iterator for DecoderIterator<'a> {
+    type Item = Event;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.recv()
+    }
+}
+
+impl<'a> DecoderIterator<'a> {
+    pub fn recv(&mut self) -> Option<Event> {
+        assert!(!self.decoder.destroyed);
+
+        while !self.bytes.is_empty() {
+            let result = if self.decoder.state == State::Payload {
+                self.read_message()
+            } else {
+                self.read_varint()
+            };
+            if result.is_some() {
+                return result;
+            }
+        }
+
+        let result = if self.decoder.state == State::Payload && self.decoder.length == 0 {
+            self.read_message()
+        } else {
+            None
+        };
+        assert!(!self.decoder.destroyed);
+        result
+    }
+
+    fn read_message(&mut self) -> Option<Event> {
+        let msg_missing = self.decoder.length.as_usize_checked().unwrap();
+        if self.bytes.len() >= msg_missing {
+            let msg_missing_bytes = self.bytes.split_to(msg_missing);
+            if let Some(ref mut msg) = self.decoder.message {
+                msg.put_slice(&msg_missing_bytes);
+            } else {
+                self.decoder.message = Some(msg_missing_bytes.into());
+            }
+            return self.next_state();
+        }
+
+        if self.decoder.message.is_none() {
+            self.decoder.message = Some(BytesMut::with_capacity(msg_missing));
+        }
+        let msg = self.decoder.message.as_mut().unwrap();
+        msg.put_slice(&self.bytes);
+        self.decoder.length -= self.bytes.len().as_u64_checked().unwrap();
+        self.bytes.clear();
+        None
+    }
+
+    fn read_varint(&mut self) -> Option<Event> {
+        while !self.bytes.is_empty() {
+            self.decoder.varint += (self.bytes[0] & 127) as u64 * self.decoder.factor;
+            self.decoder.consumed += 1;
+            if self.bytes[0] < 128 {
+                self.bytes.advance(1);
+                return self.next_state();
+            }
+            self.decoder.factor *= 128;
+            self.bytes.advance(1);
+        }
+        if self.decoder.consumed >= 8 {
+            self.decoder
+                .destroy("Incoming varint is invalid".to_owned().into()); // 8 * 7bits is 56 ie max for js
+            Some(Event::Error(Error::InvalidHeader))
+        } else {
+            None
+        }
+    }
+
+    fn next_state(&mut self) -> Option<Event> {
+        match self.decoder.state {
+            State::Length => {
+                self.decoder.state = State::Header;
+                self.decoder.factor = 1;
+                self.decoder.length = self.decoder.varint;
+                self.decoder.varint = 0;
+                self.decoder.consumed = 0;
+                if self.decoder.length == 0 {
+                    self.decoder.state = State::Length;
+                }
+                None
+            }
+
+            State::Header => {
+                self.decoder.state = State::Payload;
+                self.decoder.factor = 1;
+                self.decoder.header = self.decoder.varint;
+                self.decoder.length = self
+                    .decoder
+                    .length
+                    .checked_sub(self.decoder.consumed)
+                    .unwrap();
+                self.decoder.varint = 0;
+                self.decoder.consumed = 0;
+                if self.decoder.length.as_usize_checked().unwrap() > self.decoder.max_size {
+                    self.decoder
+                        .destroy("Incoming message is larger than max size".to_owned().into());
+                    return Some(Event::Error(Error::TooLarge(TooLarge {
+                        channel: Channel(self.decoder.header >> 4),
+                        r#type: Type(self.decoder.header & 0b1111),
+                        len: self.decoder.length,
+                    })));
+                }
+
+                let extra = self.bytes.len();
+                let len = self.decoder.length.as_usize_checked().unwrap();
+                if len > extra {
+                    Some(Event::Missing(len - extra))
+                } else {
+                    None
+                }
+            }
+
+            State::Payload => {
+                assert!(!self.decoder.destroyed);
+                self.decoder.state = State::Length;
+                let msg = self.decoder.message.take().unwrap();
+                Some(Event::Message(Message {
+                    channel: Channel(self.decoder.header >> 4),
+                    r#type: Type(self.decoder.header & 0b1111),
+                    data: msg.freeze(),
+                }))
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Event {
+    Message(Message),
+    Missing(usize),
+    Error(Error),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Error {
+    TooLarge(TooLarge),
+    InvalidHeader,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TooLarge {
+    channel: Channel,
+    r#type: Type,
+    len: u64,
 }
