@@ -44,7 +44,7 @@ impl<L: Listener> SimpleMessageChannels<L> {
             factor: 1,
             length: 0,
             header: 0,
-            state: State::ReadLength,
+            state: State::Length,
             consumed: 0,
             max_size,
         }
@@ -61,13 +61,13 @@ impl<L: Listener> SimpleMessageChannels<L> {
         assert!(!self.destroyed);
 
         while !data.is_empty() {
-            if self.state == State::ReadPayload {
+            if self.state == State::Payload {
                 self.read_message(&mut data);
             } else {
                 self.read_varint(&mut data);
             }
         }
-        if self.state == State::ReadPayload && self.length == 0 {
+        if self.state == State::Payload && self.length == 0 {
             self.read_message(&mut data);
         }
 
@@ -119,20 +119,20 @@ impl<L: Listener> SimpleMessageChannels<L> {
 
     fn next_state(&mut self, data: &Bytes) -> bool {
         match self.state {
-            State::ReadLength => {
-                self.state = State::ReadHeader;
+            State::Length => {
+                self.state = State::Header;
                 self.factor = 1;
                 self.length = self.varint;
                 self.varint = 0;
                 self.consumed = 0;
                 if self.length == 0 {
-                    self.state = State::ReadLength;
+                    self.state = State::Length;
                 }
-                return true;
+                true
             }
 
-            State::ReadHeader => {
-                self.state = State::ReadPayload;
+            State::Header => {
+                self.state = State::Payload;
                 self.factor = 1;
                 self.header = self.varint;
                 self.length = self.length.checked_sub(self.consumed).unwrap();
@@ -149,24 +149,24 @@ impl<L: Listener> SimpleMessageChannels<L> {
                     self.listener.on_missing(len - extra)
                 }
 
-                return true;
+                true
             }
 
-            State::ReadPayload => {
-                self.state = State::ReadLength;
+            State::Payload => {
+                self.state = State::Length;
                 let msg = self.message.take().unwrap();
                 self.on_message(
                     Channel(self.header >> 4),
                     Type(self.header & 0b1111),
                     msg.freeze(),
                 );
-                return !self.destroyed;
+                !self.destroyed
             }
         }
     }
 
     fn on_message(&mut self, channel: Channel, r#type: Type, message: Bytes) {
-        return self.listener.on_message(channel, r#type, message);
+        self.listener.on_message(channel, r#type, message)
     }
 
     pub fn send(&mut self, channel: Channel, r#type: Type, data: &Bytes) -> Bytes {
@@ -180,15 +180,15 @@ impl<L: Listener> SimpleMessageChannels<L> {
         writer.write_varint(header).unwrap();
         writer.write_all(data).unwrap();
 
-        return writer.into_inner().freeze();
+        writer.into_inner().freeze()
     }
 }
 
 #[derive(Eq, PartialEq)]
 enum State {
-    ReadLength,
-    ReadHeader,
-    ReadPayload,
+    Length,
+    Header,
+    Payload,
 }
 
 pub trait Listener {
